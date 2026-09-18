@@ -22,6 +22,8 @@ from collections import Counter
 from scipy import integrate, stats
 
 
+# from fast_chat.model import load_model, get_conversation_template, add_model_args
+
 class StoppingCriterias:
 
     def __init__(self, *args, **kwargs):
@@ -115,9 +117,12 @@ def extract_strategy_answer(generated_answer):
         judge2 = generated_answer.lower()
 
         if "yes" in judge2 and "no" not in judge2:
+            # print(generated_answer)
             return "Yes"
         if "no" in judge2 and "yes" not in judge2:
+            # print(generated_answer)
             return "No"
+        # print(generated_answer)
         return ""
 
 
@@ -316,7 +321,10 @@ def DSC(input_list, greedy_list, tokens, greedy_tokens, allocate, easy_threshold
                 Flag = True
                 stop_position = (i + 1) * window_size
                 break
-
+            # if judge_result["hard_stop"] and i >= len(input_list)//(window_size*2):
+            #    Flag = True
+            #    stop_position = (i+1)*window_size
+            #    break
 
         out = {}
         out["input"] = tokens["input"]
@@ -331,7 +339,7 @@ def DSC(input_list, greedy_list, tokens, greedy_tokens, allocate, easy_threshold
 def DSC_window(input_list, greedy_list, tokens, greedy_tokens, allocate, initial_window_size, extend_window_size,window_p):
     stop_position = len(input_list)
     Flag = False
-    call_count = 0
+    call_count = 0  # 新增统计变量
 
     if allocate == 1:
         out = {}
@@ -354,10 +362,11 @@ def DSC_window(input_list, greedy_list, tokens, greedy_tokens, allocate, initial
                 break
             count += 1
 
+        # 统计 input 调用次数
         if current_window_size <= window_p:
             call_count = 0
         else:
-            call_count = count + 1
+            call_count = count + 1  # 扩展次数 + 1
 
         out = {}
         out["input"] = tokens["input"]
@@ -760,6 +769,25 @@ def DSC_judge(input_list, max_sample_size,window_size, easy_threshold=0.95, hard
         return window_size
     else:
         return max_sample_size
+# def DSC_judge(input_list, max_sample_size, easy_threshold=0.95, hard_threshold=0.50, window_size=4):
+#     easy_stop_judge = MyStoppingCriteria(easy_threshold, hard_threshold)
+#     Flag = False
+#     for i in range(max_sample_size // window_size):
+#         judge_result = easy_stop_judge.should_stop(input_list[:(i + 1) * window_size])
+#         if (i + 1) * window_size >= max_sample_size:
+#             break
+#         if judge_result["easy_stop"]:
+#             Flag = True
+#             allocate = (i + 1) * window_size
+#             break
+#         if judge_result["hard_stop"]:
+#             Flag = True
+#             allocate = (i + 1) * window_size
+#             break
+#     if Flag:
+#         return allocate
+#     else:
+#         return max_sample_size
 
 
 def split_easy_hard(eval_result, pre_batch, judge_window_size, window_size, max_sample_size):
@@ -771,6 +799,8 @@ def split_easy_hard(eval_result, pre_batch, judge_window_size, window_size, max_
     allocate_list = dsc_allocate(pre_batch, judge_window_size, window_size, max_sample_size)
     zipped = sorted(zip(index, eval, question, pre_batch, allocate_list), reverse=False)
     index, eval, question, pre_batch, allocate_list = zip(*zipped)
+    # print("easy count={}".format(sum([sub == 1 for sub in allocate_list])))
+    # print("hard count={}".format(sum([sub != 1 for sub in allocate_list])))
     return index, eval, question, pre_batch, allocate_list
 
 
@@ -809,6 +839,7 @@ def allocate_run(pre_list, max_sample_size, interplot_size, window_size=4):  # i
         if j <= interplot_size - 1:
             current_window_size = window_size
         else:
+            # current_window_size = min(true_window[max(0, j - interplot_size): j]) // 4 * 4
             current_window_size = round(sum(true_window[max(0, j - interplot_size): j]) / len(
                 true_window[max(0, j - interplot_size): j]) / 4) * 4
         random_choice = random.sample(pre_list[j], max_sample_size)
@@ -824,7 +855,7 @@ def allocate_window(eval_result, pre_batch, max_sample_size, interplot_size, win
     question = eval_result["questions"]
     eval = eval_result["eval"]
     index = range(len(question))
-    zipped = sorted(zip(eval, question, pre_batch, index), reverse=False)
+    zipped = sorted(zip(eval, question, pre_batch, index), reverse=False)  # easy to hard
     eval, question, pre_batch, index = zip(*zipped)
 
     actual_window = allocate_run(pre_batch, max_sample_size, interplot_size, window_size)
@@ -876,13 +907,15 @@ if __name__ == "__main__":
     n = args.n
     repeat = args.repeat
     dataset = input_path.split("_gpt_")[0].split("/")[-1]
+    # dataset = ["MATH", "GSM8K"]
+    # dataset = dataset[1]
     window_p = 4
     interplot_size = 16
     window_size = 4
     judge_window_size = 32
     gpt_version = input_path.split("gpt_")[-1].split("_")[0]
 
-    output_path = "cmp/{}_n_{}.json".format(input_path.split("/")[-1].split("_samples_n_40_temp_0.7.jsonl")[0],
+    output_path = "cmp/{}_n_{}-6.json".format(input_path.split("/")[-1].split("_samples_n_40_temp_0.7.jsonl")[0],
                                                                          n)
     print(output_path)
     if os.path.exists(output_path):
@@ -890,6 +923,7 @@ if __name__ == "__main__":
             result = json.load(f)
         print(result)
     else:
+        # === DSC 评估只需要 tokenizer，不需要加载大模型 ===
         from transformers import AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
@@ -920,6 +954,8 @@ if __name__ == "__main__":
             f.close()
 
         all_dict = {}
+
+        # type_all = []
         eval_result = []
         pre = []
         pre_answer = []
@@ -953,9 +989,11 @@ if __name__ == "__main__":
             pre.append(tem)
             if dataset == "MATH":
                 pre_answer.append(tem['answer'])
+                # type_all.append(tem["type"])
             elif dataset == "GSM8K":
                 pre_answer.append(extract_answer(tem['answer']))
             else:
+                # pre_answer.append(tem['output'])
                 pre_answer.append(tem['answer'])
 
             shu_batch = tem['completion']
@@ -990,6 +1028,7 @@ if __name__ == "__main__":
             elif dataset == "GSM8K":
                 greedy_pre_answer.append(extract_answer(tem['answer']))
             else:
+                # pre_answer.append(tem['output'])
                 pre_answer.append(tem['answer'])
 
             shu_batch = tem['completion']
@@ -1021,12 +1060,13 @@ if __name__ == "__main__":
             for line in f:
                 eval_result.append(json.loads(line))
             f.close()
+        # eval allocate
 
         if dataset != "MATH":
             eval_result = eval_result[0]
         else:
             total_length = len(eval_result)
-            eval_result_math = {}
+            eval_result_math = {}  # {"questions":[], "eval":[], "subject":[]}
             for i in range(len(eval_result)):
                 item = eval_result[i]
                 if item["subject"] not in eval_result_math.keys():
@@ -1035,6 +1075,7 @@ if __name__ == "__main__":
                 eval_result_math[item["subject"]]["eval"].append(item["eval"])
                 eval_result_math[item["subject"]]["pre_batch"].append(deepcopy(pre_batch[i]))
                 eval_result_math[item["subject"]]["index"].append(i)
+                # eval_result_math[item["subject"]]["subject"].append(item["subject"])
             eval_result = eval_result_math
 
 
@@ -1049,6 +1090,7 @@ if __name__ == "__main__":
                 greedy_pre_batch,
                 n)
 
+        # 在循环外定义多轮累积列表
         all_repeat_input_tokens = []
         all_repeat_output_tokens = []
         all_repeat_prices = []
@@ -1109,7 +1151,7 @@ if __name__ == "__main__":
 
                 predict_batch, tokens_batch = random_elements(predict_batch, tokens_batch, n)
 
-
+                # 计算 DSC_window
                 dsc_window_batch, dsc_window_token_batch, call_count,is_easy= DSC_window(
                     predict_batch, greedy_predict_batch,
                     tokens_batch, greedy_tokens_batch,
@@ -1117,6 +1159,7 @@ if __name__ == "__main__":
                     window_size,window_p
                 )
 
+                # 统计 token
 
                 if is_easy:
                     dsc_window_input_token = tokens_batch["input"] * call_count
@@ -1132,6 +1175,7 @@ if __name__ == "__main__":
                 sub_tokens_count["output"].append(dsc_window_output_token)
                 sub_tokens_count["output_step2"].append(dsc_window_output_token_step2)
 
+                # 统计预测结果
                 dsc_window_pre_dict = {}
                 for item in dsc_window_batch:
                     dsc_window_pre_dict[item] = dsc_window_pre_dict.get(item, 0) + 1
@@ -1139,6 +1183,7 @@ if __name__ == "__main__":
                 dsc_window_pre = max(dsc_window_pre_dict, key=dsc_window_pre_dict.get)
                 dsc_window_result_list.append(dsc_window_pre == answer)
 
+            # 计算单轮平均 token 和价格
             avg_input_token = np.mean(sub_tokens_count["input"])
             avg_output_token = np.mean(sub_tokens_count["output"])
             avg_output_token_step2 = np.mean(sub_tokens_count["output_step2"])
@@ -1146,6 +1191,7 @@ if __name__ == "__main__":
             price = get_dollars(avg_input_token, avg_output_token, gpt_version)
             price_step2 = get_dollars(avg_input_token, avg_output_token_step2, gpt_version)
 
+            # 保存到多轮列表
             all_repeat_input_tokens.append(avg_input_token)
             all_repeat_output_tokens.append(avg_output_token)
             all_repeat_accuracy.append(avg_accuracy)
@@ -1153,6 +1199,7 @@ if __name__ == "__main__":
             all_repeat_output_tokens_step2.append(avg_output_token_step2)
             all_repeat_prices_step2.append(price_step2)
 
+        # 多轮平均
         mean_input_token = np.mean(all_repeat_input_tokens)
         mean_output_token = np.mean(all_repeat_output_tokens)
         mean_accuracy = np.mean(all_repeat_accuracy)
